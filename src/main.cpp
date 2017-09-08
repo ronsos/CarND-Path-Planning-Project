@@ -5,6 +5,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include "spline.h"
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
@@ -18,6 +19,16 @@ using json = nlohmann::json;
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
+
+/************* Path Planning Initialization **********************/
+// Set start lane
+int lane = 1;
+            
+// Set reference velocity 
+double ref_vel = 0.001; // mph
+  
+/*****************************************************************/     
+ 
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -168,7 +179,7 @@ int main() {
   vector<double> map_waypoints_s;
   vector<double> map_waypoints_dx;
   vector<double> map_waypoints_dy;
-
+    
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
   // The max s value before wrapping around the track back to 0
@@ -195,7 +206,8 @@ int main() {
   	map_waypoints_dx.push_back(d_x);
   	map_waypoints_dy.push_back(d_y);
   }
-
+    
+ 
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -237,43 +249,168 @@ int main() {
 
           	vector<double> next_x_vals;
           	vector<double> next_y_vals;
-
-
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
             
-            double pos_x, pos_y, angle;
-            int path_size = previous_path_x.size();
             
-            for (int i=0; i<path_size; i++) {
+            
+            /*********  PATH PLANNER **********************/
+            // Define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+            
+            // Get size of previous path 
+            int prev_size = previous_path_x.size();
+            
+            // initialize flag for checking if too close
+            bool too_close = false;  
+            
+            cout << "Lane, ref_vel = " << lane << " , " << ref_vel << endl;
+            
+            if (prev_size > 0)
+            {
+              car_s = end_path_s;
+            }
+            
+            // find ref_v to use
+            for (int i=0; i<sensor_fusion.size(); i++)
+            {
+              // car is in my lane
+              float d = sensor_fusion[i][6];
+              if (d < (2+4*lane+2) && d > (2+4*lane-2))
+              {
+                double vx = sensor_fusion[i][3];
+                double vy = sensor_fusion[i][4];
+                double check_speed = sqrt(vx*vx + vy*vy);
+                double check_car_s = sensor_fusion[i][5];
+                  
+                check_car_s += ((double)prev_size * 0.02*check_speed);
+                  
+                if ((check_car_s > car_s) && ((check_car_s-car_s) < 30))
+                {
+                  // TAKE ACTION
+                  // lower speed, or check change lanes
+                     
+                  too_close = true;  
+                    
+                  if (lane > 0)
+                  {
+                      lane = 0;
+                  }
+                }
+              }
+            }
+            
+            // Velocity increment
+            if(too_close)
+            {
+                ref_vel -= 0.224; // subtract velocity increment, ~5 m/s2
+            }
+            else if(ref_vel < 49.5)
+            {
+                ref_vel += 0.224; // add velocity increment, ~5 m/s2
+            }
+             
+            // Create a list of widely spaced waypoints initially, later use for spline
+            vector<double> ptsx, ptsy;
+            
+            // Reference x,y,yaw states
+            double ref_x = car_x;
+            double ref_y = car_y; 
+            double ref_yaw = deg2rad(car_yaw);
+            
+            // if previous state is almost empty , use the car as starting reference
+            if (prev_size < 2)
+            {
+                // Use two points that mke the path tanget to the car
+                double prev_car_x = car_x - cos(car_yaw);
+                double prev_car_y = car_y - sin(car_yaw);
+                
+                ptsx.push_back(prev_car_x);
+                ptsx.push_back(car_x);
+                ptsy.push_back(prev_car_y);
+                ptsy.push_back(car_y);
+            }
+            else // use the previous path's end point as starting reference
+            {
+                // refdefine ref state as previous path end point
+                ref_x = previous_path_x[prev_size-1];
+                ref_y = previous_path_y[prev_size-1];
+                
+                double ref_x_prev = previous_path_x[prev_size-2];
+                double ref_y_prev = previous_path_y[prev_size-2];
+                ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
+                
+                // use two points that make the path tangent to the previous path's endpoint
+                ptsx.push_back(ref_x_prev);
+                ptsx.push_back(ref_x);
+                ptsy.push_back(ref_y_prev);
+                ptsy.push_back(ref_y);
+            }
+            
+            // In frenet, add evenly spaced 30 m points ahead of the starting reference
+            vector<double> next_mp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+ 
+            vector<double> next_mp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_mp2 = getXY(car_s+90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            
+            ptsx.push_back(next_mp0[0]);
+            ptsx.push_back(next_mp1[0]);
+            ptsx.push_back(next_mp2[0]);
+            ptsy.push_back(next_mp0[1]);
+            ptsy.push_back(next_mp1[1]);
+            ptsy.push_back(next_mp2[1]);
+            
+            // Coordinate transform rotation to align yaw frame
+            for (int i=0; i<ptsx.size(); i++)
+            {
+                double shift_x = ptsx[i] - ref_x;
+                double shift_y = ptsy[i] - ref_y;
+                
+                ptsx[i] = (shift_x * cos(0-ref_yaw) - shift_y*sin(0-ref_yaw));
+                ptsy[i] = (shift_x * sin(0-ref_yaw) + shift_y*cos(0-ref_yaw));
+            }
+            
+            // create a spline
+            tk::spline s;
+            
+            // set (x,y) points to the spline
+            s.set_points(ptsx, ptsy);
+            
+            // start with all previous path points from last time
+            for (int i=0; i < previous_path_x.size(); i++)
+            {
                 next_x_vals.push_back(previous_path_x[i]);
                 next_y_vals.push_back(previous_path_y[i]);
             }
             
-            if (path_size == 0)
-            {
-                pos_x = car_x;
-                pos_y = car_y;
-                angle = deg2rad(car_yaw);
-            }
-            else
-            {
-                pos_x = previous_path_x[path_size - 1];
-                pos_y = previous_path_y[path_size - 1];
-                
-                double pos_x2 = previous_path_x[path_size - 2];
-                double pos_y2 = previous_path_y[path_size - 2];
-                angle = atan2(pos_y-pos_y2, pos_x-pos_x2);
-            }
+            // Calculate how to break up spline points so that we travel at desired velocity 
+            double target_x = 30.0; // meters
+            double target_y = s(target_x);
+            double target_dist = sqrt((target_x)*(target_x) + (target_y)*(target_y)); 
             
-            double dist_inc = 0.5;
-            for (int i=0; i<50-path_size; i++)
+            double x_add_on = 0; 
+            
+            // fill up with rest of the path planner after filling in with previous points
+            for (int i=1; i<= 50-previous_path_x.size(); i++) 
             {
-                next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
-                next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
-                pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
-                pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
+                double N = (target_dist / (0.02*ref_vel/2.24)); // 2.24 mph to m/s
+                double x_point = x_add_on + (target_x) / N;
+                double y_point = s(x_point);
+                
+                x_add_on = x_point;
+                
+                double x_ref = x_point;
+                double y_ref = y_point;
+                
+                // rotate back to normal after rotating earlier
+                x_point = x_ref * cos(ref_yaw) - y_ref*sin(ref_yaw);
+                y_point = x_ref * sin(ref_yaw) + y_ref*cos(ref_yaw);
+                
+                x_point += ref_x;
+                y_point += ref_y;
+                
+                next_x_vals.push_back(x_point);
+                next_y_vals.push_back(y_point);
             }
                        
+            /************* END PATH PLANNER ***********************/
             
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
