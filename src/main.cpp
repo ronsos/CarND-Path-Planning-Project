@@ -20,12 +20,18 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
+// More conversions
+double mps2mph = 1/.3048/5280*3600;
+    
 /************* Path Planning Initialization **********************/
 // Set start lane
 int lane = 1;
             
 // Set reference velocity 
 double ref_vel = 0.001; // mph
+
+// Velocity increment to limit acceleration
+double vel_incr = 0.224;
   
 /*****************************************************************/     
  
@@ -248,12 +254,49 @@ int main() {
           	json msgJson;
 
           	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
+          	vector<double> next_y_vals;   
             
-            
-            
-            /*********  PATH PLANNER **********************/
+/*************************  PATH PLANNER **********************************/
             // Define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+            
+/******************* Lane Selector ****************************************/
+            // Create cost function - lower is better
+            Eigen::VectorXd cost = Eigen::VectorXd(3);
+              cost << 0, 0, 0;   
+            Eigen::VectorXd cost_current_lane = Eigen::VectorXd(3);
+              cost_current_lane << 0,0,0;
+            Eigen::VectorXd cost_2lane = Eigen::VectorXd(3);
+              cost_2lane << 0,0,0;
+            Eigen::VectorXd cost_collison = Eigen::VectorXd(3);
+              cost_collison << 0,0,0;
+            Eigen::VectorXd cost_blocked = Eigen::VectorXd(3);
+              cost_blocked << 0,0,0;
+            
+            // Current lane bonus
+            cost_current_lane[lane] -= 1.0;
+            
+            // Penalty for 2 lane switch 
+            if (lane==0)
+            {
+                cost_2lane[2] += 1.0;
+            }
+            else if (lane==2)
+            {
+                cost_2lane[0] += 1.0;
+            }
+            
+            // Penalty for collison risk
+            
+            // Penalty if lane is blocked
+            
+            // Total cost
+            cost = 1.0*cost_current_lane + 1.0*cost_2lane + 1.0*cost_collison + 1.0*cost_blocked;
+            
+            // Find best lane from cost function
+            
+            cout << "lane = " << lane << ", cost = " << cost[0] << ", " << cost[1] << ", " << cost[2] << endl;
+            
+/********************** End Lane Selector*************************************/
             
             // Get size of previous path 
             int prev_size = previous_path_x.size();
@@ -261,7 +304,7 @@ int main() {
             // initialize flag for checking if too close
             bool too_close = false;  
             
-            cout << "Lane, ref_vel = " << lane << " , " << ref_vel << endl;
+            //cout << "Lane, ref_vel = " << lane << " , " << ref_vel << endl;
             
             if (prev_size > 0)
             {
@@ -271,6 +314,8 @@ int main() {
             // find ref_v to use
             for (int i=0; i<sensor_fusion.size(); i++)
             {
+              //cout << "i= " << i << ", s = " << sensor_fusion[i][5] << ", d = " << sensor_fusion[i][6] << endl;
+                
               // car is in my lane
               float d = sensor_fusion[i][6];
               if (d < (2+4*lane+2) && d > (2+4*lane-2))
@@ -282,29 +327,30 @@ int main() {
                   
                 check_car_s += ((double)prev_size * 0.02*check_speed);
                   
-                if ((check_car_s > car_s) && ((check_car_s-car_s) < 30))
+                if ((check_car_s > car_s) && ((check_car_s-car_s) < 30.0))
                 {
-                  // TAKE ACTION
-                  // lower speed, or check change lanes
-                     
-                  too_close = true;  
+                  too_close = true; 
+                  
+                  // Find target speed in mph
+                  double target_speed = check_speed*mps2mph;
                     
-                  if (lane > 0)
+                  // lower speed to match car in front if too fast or close
+                  if ((ref_vel - target_speed) > vel_incr || (check_car_s-car_s) < 25.0) 
                   {
-                      lane = 0;
-                  }
+                      ref_vel -= vel_incr; // subtract velocity increment
+                  } 
+                  else if ((abs(ref_vel - target_speed)) < vel_incr)
+                  {
+                      ref_vel = target_speed;
+                  } 
                 }
               }
             }
             
-            // Velocity increment
-            if(too_close)
+            // Increment velocity if slower than target velocity and no car in front
+            if(ref_vel < 49.5 && too_close == false)
             {
-                ref_vel -= 0.224; // subtract velocity increment, ~5 m/s2
-            }
-            else if(ref_vel < 49.5)
-            {
-                ref_vel += 0.224; // add velocity increment, ~5 m/s2
+                ref_vel += vel_incr; // add velocity increment, ~5 m/s2
             }
              
             // Create a list of widely spaced waypoints initially, later use for spline
@@ -318,7 +364,7 @@ int main() {
             // if previous state is almost empty , use the car as starting reference
             if (prev_size < 2)
             {
-                // Use two points that mke the path tanget to the car
+                // Use two points that make the path tanget to the car
                 double prev_car_x = car_x - cos(car_yaw);
                 double prev_car_y = car_y - sin(car_yaw);
                 
@@ -329,7 +375,7 @@ int main() {
             }
             else // use the previous path's end point as starting reference
             {
-                // refdefine ref state as previous path end point
+                // redefine ref state as previous path end point
                 ref_x = previous_path_x[prev_size-1];
                 ref_y = previous_path_y[prev_size-1];
                 
@@ -410,7 +456,7 @@ int main() {
                 next_y_vals.push_back(y_point);
             }
                        
-            /************* END PATH PLANNER ***********************/
+/********************* END PATH PLANNER ***********************************/
             
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
