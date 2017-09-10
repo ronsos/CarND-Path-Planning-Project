@@ -259,16 +259,22 @@ int main() {
 /*************************  PATH PLANNER **********************************/
             // Define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
             
-/******************* Lane Selector ****************************************/
+            // Get size of previous path 
+            int prev_size = previous_path_x.size();
+            
+            // initialize flag for checking if too close
+            bool too_close = false; 
+            
+  /******************* Lane Selector ****************************************/
             // Create cost function - lower is better
             Eigen::VectorXd cost = Eigen::VectorXd(3);
               cost << 0, 0, 0;   
             Eigen::VectorXd cost_current_lane = Eigen::VectorXd(3);
-              cost_current_lane << 0,0,0;
+              cost_current_lane << 0, 0, 0;
             Eigen::VectorXd cost_2lane = Eigen::VectorXd(3);
-              cost_2lane << 0,0,0;
+              cost_2lane << 0, 0, 0;
             Eigen::VectorXd cost_collison = Eigen::VectorXd(3);
-              cost_collison << 0,0,0;
+              cost_collison << 0, 0, 0;
             Eigen::VectorXd cost_blocked = Eigen::VectorXd(3);
               cost_blocked << 0,0,0;
             
@@ -285,24 +291,55 @@ int main() {
                 cost_2lane[0] += 1.0;
             }
             
-            // Penalty for collison risk
-            
+            // Penalty for collison risk AND
             // Penalty if lane is blocked
+            // go through the cars one time only 
+            for (int i=0; i<sensor_fusion.size(); i++)
+            {
+                double target_s = sensor_fusion[i][5];
+                double target_d = sensor_fusion[i][6];
+                double target_lane;
+                int i_tgt_lane;
+                
+                // check for collison
+                if ((car_s-30.0) < target_s && target_s < (car_s+30.0))
+                {
+                    // find target lane
+                    target_lane = (round(target_d) - 2.0 ) / 4.0;
+                    i_tgt_lane = int(target_lane + 0.5);
+                    cout << "Collison Alert in Lane #:" << i_tgt_lane << endl;
+                    cost_collison[i_tgt_lane] += 1;
+                }
+                // check for open/blocked lane
+                if (target_s > car_s && (target_s-car_s) < 60.0)
+                {
+                    target_lane = (round(target_d) - 2.0 ) / 4.0;
+                    i_tgt_lane = int(target_lane + 0.5);
+                    cout << "Lane Blocked in Lane #:" << i_tgt_lane << endl;
+                    cost_blocked[i_tgt_lane] += 1;
+                }
+            }
+                
             
             // Total cost
-            cost = 1.0*cost_current_lane + 1.0*cost_2lane + 1.0*cost_collison + 1.0*cost_blocked;
+            cost = 1.0*cost_current_lane + 1.0*cost_2lane + 2.0*cost_collison + 1.0*cost_blocked;
             
-            // Find best lane from cost function
+            //Find min cost
+            double min_cost = min(min(cost[0],cost[1]),cost[2]);
             
-            cout << "lane = " << lane << ", cost = " << cost[0] << ", " << cost[1] << ", " << cost[2] << endl;
+            // Find best lane by checking vs min cost
+            for (int i=0; i<3; i++)
+            {
+                if (cost[i] <= min_cost)
+                {
+                    lane = i;
+                }
+            }
             
-/********************** End Lane Selector*************************************/
+            cout << "lane = " << lane << ", cost = " << cost[0] << ", " << cost[1] << ", " << cost[2] << ", min_cost = " << min_cost << endl;
             
-            // Get size of previous path 
-            int prev_size = previous_path_x.size();
-            
-            // initialize flag for checking if too close
-            bool too_close = false;  
+  /********************** End Lane Selector*************************************/
+             
             
             //cout << "Lane, ref_vel = " << lane << " , " << ref_vel << endl;
             
