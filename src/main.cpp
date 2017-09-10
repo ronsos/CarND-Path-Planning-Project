@@ -322,7 +322,7 @@ int main() {
                 
             
             // Total cost
-            cost = 1.0*cost_current_lane + 1.0*cost_2lane + 2.0*cost_collison + 1.0*cost_blocked;
+            cost = 2.0*cost_current_lane + 10.0*cost_2lane + 2.0*cost_collison + 1.0*cost_blocked;
             
             //Find min cost
             double min_cost = min(min(cost[0],cost[1]),cost[2]);
