@@ -1,101 +1,107 @@
-## Model Predictive Control Project
+## Path Planning Project
 
-### The Model 
-A MPC controller is used for commanding the steering and throttle of the vehicle. The simulator provides a set of waypoints that represent a desired path. This is shown in yellow in the video. A curvefit is applied to these waypoints. The curvefit is then provided to the optimizer, IPOPT. 
+### Lane Selector 
+A cost function was developed to assist in lane selection. Four seperate components were used in calculating the cost function. 
 
-The output state from the simulator is given in map coordinates. I converted the position state from map (px, py) to car coordinates in main.cpp, according to the following equations:
+1. A bonus for the current lane
+2. Penalty for a two lane switch 
+3. Penalty for a collision risk
+4. Penalty if lane is blocked
 
-`x = ptsx[i] - px`
+Of the three possible lanes, the lane with the lowest cost is selected. Initially, the weights for each component were set at 1.0. I then tuned the weights to improve the performance of the lane selector. 
 
-`y = ptsy[i] - py`
+Each component of the cost function works as follows:
 
-`ptsx_car[i] = x * cos(-psi) - y * sin(-psi)`
+#### 1. Current lane
+A preference bonus for the current lane.  
 
-`ptsy_car[i] = x * sin(-psi) + y * cos(-psi)`
- 
-The polynomial curvefit is a 3rd order fit applied to the position state in car coordinates. This fit is then used to calculate the crosstrack error (cte) and the error in vehicle orientation.
-  
-`coeffs = polyfit(ptsx_car, ptsy_car, 3)`
+Final weight = 2.0
 
-`cte = polyeval(coeffs, 0) - 0` 
+#### 2. Two Lane Switch
+A penalty for attempting to switch two lanes at once. This turns out to be a really dangerous maneuver, so I set the weight high enough so that it would not trigger. However, this doesn't stop the selector from choosing a two lane switch over successive cycles. 
 
-`epsi = -atan(coeffs[1])` 
- 
-The state gets passed into the MPC solver, where it is used to set the initial condition. The `coeffs` curvefit additionally is passed into the evaluation of the cost function. This curvefit is used to provide the constraint target for crosstrack error and vehicle orientation error. 
+Final weight = 10.0
 
-`f0 = coeffs[0] + coeffs[1]*x0 + coeffs[2]*x0*x0 + coeffs[3]*x0*x0*x0`
+#### 3. Collision
+Goes through the list of cars, and checks to see if the distance is within 30 m of the EGO car. 
 
-`psides0 = CppAD::atan(3*coeffs[3]*x0*x0 + 2*coeffs[2]*x0 + coeffs[1])`
+`if ((car_s-30.0) < target_s && target_s < (car_s+30.0))`
+then add a penalty to lane that the target car is in. 
+                                                            
+Final weight = 2.0
 
-These are used in the main set of dynamic equations. The dynamics equations are treated as constraints that must be driven to zero. The dynamics/constraints model is as follows:
+#### 4. Blocked Lane
+Goes though the list of cars. If the target car is in front of the EGO car, but within 60 m, then add a penalty to the lane that the target car is in.  
 
-`fg[1 + x_start + t] = x1 - (x0 + v0 * CppAD::cos(psi0) * dt)`
+`if (target_s > car_s && (target_s-car_s) < 60.0)`
+add penalty to the lane that the target car is in. 
+              
+Final weight = 1.0
 
-`fg[1 + y_start + t] = y1 - (y0 + v0 * CppAD::sin(psi0) * dt)`
+#### Lane selector reflection
+The lane selector generally worked pretty well, but could be improved. I did not do any tuning of the +/-30 m distance for collision checks or the 60 m for the lane blocking check. These could be tuned, especially since there is some overlap so a single car can count in both checks and skew the results. Also, it may be helpful to use the velocity in some way to come up with a better check than just distance. 
 
-`fg[1 + psi_start + t] = psi1 - (psi0 + v0/Lf * delta0 * dt)`
-
-`fg[1 + v_start + t] = v1 - (v0 + a0 * dt)`
-
-`fg[1 + cte_start + t] = cte1 - (f0 - y0 + v0 * CppAD::sin(epsi0) * dt)`
-
-`fg[1 + epsi_start + t] = epsi1 - ((psi0-psides0) - v0/Lf * delta0 * dt)`
-
-The solution that is returned from the solver consists of two main parts: commands, and the predicted path. The commands are applied in terms of throttle value and steering command. The projected state from the MPC solver solution is put into the `mpc_x_vals` and `mpc_y_vals` arrays and plotted in the simulator in green. 
- 
-
-### Timestep Length and Elapsed Duration (N & dt)
-The timestep, dt, represents the length of time between each point used in the discretization of the state propagation in the optimzer. 
-
-The number of points, N, is the total amount of points used in the optimizer. 
-
-Thus, the product of these parameters, `N*dt`, represents the total length of the propagation in time, or time horizon. The larger this number, the greater the length of time forward the optimizer is considering. 
-
-The total distance down the track the optimizer will consider is `N*dt*velocity`. The key in tuning the N and dt parameters is to consider far enough forward that the controller has time to response to sharp turns but not so far in the future that the curvefit will have to content with very complex geometry and potentially ugly overfitted solutions. Also, the computational limits need to be considered. For a given `N*dt`, a combination of increasing N / lowering dt will tend to require more computational effort. 
-
-The final values that I chose were N=8 and dt=0.1. These values worked for a velocity of 90 mph. For 60 mph, I used N=10 and dt=0.1. These values seemed to provide enough down track information that the car could achieve the turn rates necessary for sharp turns, but without excessive computations. 
-
-The cost function required tuning for each velocity target as well. 
+Ultimately, the results showed that this algorithm exceeded the requirements, so this method was reasonably successful.  
 
 
-### Polynomial Fitting and MPC Preprocessing
-The polynominal fit used is a 3rd order fit. This allows some curvature to the fit and also an inflection point. The `polyfit` function was used to develop the curvefit. 
+### Velocity Adjustments and In-Lane Follower 
+The basic idea for modifying the vehicle velocity was taken from the class walkthrough video, but the algorithm was modified to improve its performance when following behind a vehicle. 
 
-`coeffs = polyfit(ptsx_car, ptsy_car, 3)`
+The basic idea of the algorithm is to check within the lane by propagating the state of any car in the lane to a future point (which turns out to be 1 sec in the future). The distance, s, of the target car is checked against the prediction for the EGO car at that same time. If the EGO car final prediction is within 30 m of a target car that is in front of it, then the EGO car's reference speed is slower by a velocity increment (chosen to be 0.224 mph as not to exceed the vehicle's maximum acceleration limit). I made a small modifcation to the algorithm such that if the target car speed and the EGO car speed are within a single velocity increment, the EGO car reference speed is set to that of the target car. This has the effect of reducing the car speeding up and slowing down, and helps the EGO car maintain a more stable velocity. 
 
-The fit is applied to the vehicle state in transformed coordinates relative to the car. The vehicle orientation is used as the x-axis for the new states. The cross track error and orientation error are calculated in the car frame. 
-
-`cte = polyeval(coeffs, 0) - 0` 
-
-`epsi = -atan(coeffs[1])` 
+If the lane is clear, and the EGO car velocity is less than 49.5 mph, then the velocity increment (0.224 mph) is added. 
           
 
-### Model Predictive Control with Latency 
-An assumed latency value of 100 ms was specified in the project requirements. This was dealt with in the following manner. First, the velocity units were converted from mph to m/s, (due to the position states, px and py, being in meters):
+### Trajectory Generation
+The trajectory generation algorithm I used is directly from the class walkthrough video. The basic idea is to use two points from the previous timestep (or estimate them if not yet populated) then add on additional points as needed to fill out the vector using a spline fit. The additional points to be use for the spline fit are based on the target lane, which may or may not be the same as the current lane, and are found at 30, 60, and 90 m intervals in Frenet space (and converted to XY):
 
-`v_ms = v * 5280 * .3048 / 3600; // convert velocity to m/s`
+`vector<double> next_mp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);`
 
-The velocity is then used to propagate the current state forward 0.1 s. 
+`vector<double> next_mp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);`
 
-`px = px + v_ms*cos(psi)*latency`
+`vector<double> next_mp2 = getXY(car_s+90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);`
 
-`py = py + v_ms*sin(psi)*latency`
+The new points are added to the vector of XY points from the previous step, then rotated to a frame aligned with the EGO car's yaw:
 
-`psi = psi + v_ms*(-delta)/Lf*latency`
+`ptsx[i] = (shift_x * cos(0-ref_yaw) - shift_y*sin(0-ref_yaw));`
+                
+`ptsy[i] = (shift_x * sin(0-ref_yaw) + shift_y*cos(0-ref_yaw));`
 
-`v = v + accel*latency`
+The `ptsx` and `ptsy` vectors are used to generate the spline fit, using the `s` function. 
+
+The target distance for the vector of points to be sent to the simulator (`next_x_vals` and `next_y_vals`) is determined by finding the Euclidian distance based on a 30 m distance in x and the result of spline fit in y. 
+         
+`double target_x = 30.0; // meters`
+
+`double target_y = s(target_x);`
+
+`double target_dist = sqrt((target_x)*(target_x) + (target_y)*(target_y));`
  
-The model was initially tuned with zero latency. Then the latency was changed to 100 ms, and the controller was retuned. The only parameters that needed to be adjusted  were the cost function weights. 
+This target distance is used to fill out the rest of the `next_x_vals` and `next_y_vals` vectors. The resolution is found by using the target distance, vehicle velocity, and 20 ms update. 
 
-### Simulation Screenshot
-The screen capture below shows the MPC controller output in green, compared to the desired path in the yellow. The controller successfully completes the course, keeping the car on the road at high speed (up to 90 mph on straight portions). 
+`double N = (target_dist / (0.02*ref_vel/2.24)); // 2.24 mph to m/s`
 
-![img1](img1.png "MPC Control Project")
+`double x_point = x_add_on + (target_x) / N;`
+
+`double y_point = s(x_point);`
+                
+These points are then rotated back to the XY frame and added to `next_x_vals` and `next_y_vals`. 
+
+### Results 
+Two trials were completed with the current algorithm. The first trial, the path planner ran for 19.38 mi before an incident occurred. The second trial went 23.86 mi before an incident occurred. This is greater than the required 4.32 mi. 
+
+The average car speed in the second trial was greater than 45 mph, so the vehicle is doing a fairly good job of staying close to the speed limit when possible. 
+
+Here is an image just after Trial 1, showing the 19.38 mi.
+![img1](/images/img19.png "Trial 1")
+
+Here is an image following Trial 2, showing that the car went 23.86 mi without an incident. It looks as though the incident was pretty catastrophic. 
+![img2](/images/img24.png "Trial 2")
 
 
-### Simulation
+### Basic Build Instructions
 To run the simulation:
 1. Clone this repo.
 2. Make a build directory: mkdir build && cd build
 3. Compile: cmake .. && make
-4. Run it: ./mpc.
+4. Run it: ./path_planning.
