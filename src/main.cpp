@@ -307,7 +307,7 @@ int main() {
                     // find target lane
                     target_lane = (round(target_d) - 2.0 ) / 4.0;
                     i_tgt_lane = int(target_lane + 0.5);
-                    cout << "Collison Alert in Lane #:" << i_tgt_lane << endl;
+                    //cout << "Collison Alert in Lane #:" << i_tgt_lane << endl;
                     cost_collison[i_tgt_lane] += 1;
                 }
                 // check for open/blocked lane
@@ -315,7 +315,7 @@ int main() {
                 {
                     target_lane = (round(target_d) - 2.0 ) / 4.0;
                     i_tgt_lane = int(target_lane + 0.5);
-                    cout << "Lane Blocked in Lane #:" << i_tgt_lane << endl;
+                    //cout << "Lane Blocked in Lane #:" << i_tgt_lane << endl;
                     cost_blocked[i_tgt_lane] += 1;
                 }
             }
@@ -336,23 +336,18 @@ int main() {
                 }
             }
             
-            cout << "lane = " << lane << ", cost = " << cost[0] << ", " << cost[1] << ", " << cost[2] << ", min_cost = " << min_cost << endl;
+            // cout << "lane = " << lane << ", cost = " << cost[0] << ", " << cost[1] << ", " << cost[2] << ", min_cost = " << min_cost << endl;
             
   /********************** End Lane Selector*************************************/
-             
-            
-            //cout << "Lane, ref_vel = " << lane << " , " << ref_vel << endl;
             
             if (prev_size > 0)
             {
               car_s = end_path_s;
             }
             
-            // find ref_v to use
+            // find ref_v to use - this section from Class Walkthrough video 
             for (int i=0; i<sensor_fusion.size(); i++)
-            {
-              //cout << "i= " << i << ", s = " << sensor_fusion[i][5] << ", d = " << sensor_fusion[i][6] << endl;
-                
+            { 
               // car is in my lane
               float d = sensor_fusion[i][6];
               if (d < (2+4*lane+2) && d > (2+4*lane-2))
@@ -429,7 +424,6 @@ int main() {
             
             // In frenet, add evenly spaced 30 m points ahead of the starting reference
             vector<double> next_mp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
- 
             vector<double> next_mp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
             vector<double> next_mp2 = getXY(car_s+90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
             
