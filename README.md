@@ -53,7 +53,7 @@ If the lane is clear, and the EGO car velocity is less than 49.5 mph, then the v
           
 
 ### Trajectory Generation
-The trajectory generation algorithm I used is directly from the class walkthrough video. The basic idea is to use two points from the previous timestep (or estimate them if not yet populated) then add on additional points as needed to fill out the vector using a spline fit. The additional points to be use for the spline fit are based on the target lane, which may or may not be the same as the current lane, and are found at 30, 60, and 90 m intervals in Frenet space (and converted to XY):
+The trajectory generation algorithm I used is directly from the class walkthrough video. The basic idea is to use two points from the previous timestep (or estimate them if not yet populated) then add on additional points as needed to fill out the vector using a spline fit. The additional points to be used for the spline fit are based on the target lane, which may or may not be the same as the current lane, and are found at 30, 60, and 90 m intervals in Frenet space (and converted to XY):
 
 `vector<double> next_mp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);`
 
@@ -88,7 +88,7 @@ This target distance is used to fill out the rest of the `next_x_vals` and `next
 These points are then rotated back to the XY frame and added to `next_x_vals` and `next_y_vals`. 
 
 ### Results 
-Two trials were completed with the current algorithm. The first trial, the path planner ran for 19.38 mi before an incident occurred. The second trial went 23.86 mi before an incident occurred. This is greater than the required 4.32 mi. 
+Two trials were completed with the final algorithm. The first trial, the path planner ran for 19.38 mi before an incident occurred. The second trial went 23.86 mi before an incident occurred. This is greater than the required 4.32 mi. 
 
 The average car speed in the second trial was greater than 45 mph, so the vehicle is doing a fairly good job of staying close to the speed limit when possible. 
 
