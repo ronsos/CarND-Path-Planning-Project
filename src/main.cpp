@@ -268,15 +268,15 @@ int main() {
   /******************* Lane Selector ****************************************/
             // Create cost function - lower is better
             Eigen::VectorXd cost = Eigen::VectorXd(3);
-              cost << 0, 0, 0;   
+              cost << 0.0, 0.0, 0.0;   
             Eigen::VectorXd cost_current_lane = Eigen::VectorXd(3);
-              cost_current_lane << 0, 0, 0;
+              cost_current_lane << 0.0, 0.0, 0.0;
             Eigen::VectorXd cost_2lane = Eigen::VectorXd(3);
-              cost_2lane << 0, 0, 0;
+              cost_2lane << 0.0, 0.0, 0.0;
             Eigen::VectorXd cost_collison = Eigen::VectorXd(3);
-              cost_collison << 0, 0, 0;
+              cost_collison << 0.0, 0.0, 0.0;
             Eigen::VectorXd cost_blocked = Eigen::VectorXd(3);
-              cost_blocked << 0,0,0;
+              cost_blocked << 0.0, 0.0, 0.0;
             
             // Current lane bonus
             cost_current_lane[lane] -= 1.0;
@@ -307,16 +307,26 @@ int main() {
                     // find target lane
                     target_lane = (round(target_d) - 2.0 ) / 4.0;
                     i_tgt_lane = int(target_lane + 0.5);
-                    //cout << "Collison Alert in Lane #:" << i_tgt_lane << endl;
-                    cost_collison[i_tgt_lane] += 1;
+                    
+                    // Verify lane number before indexing
+                    if (i_tgt_lane >=0 && i_tgt_lane <= 2)
+                    {
+                      //cout << "Collison Alert in Lane #:" << i_tgt_lane << endl;
+                      cost_collison[i_tgt_lane] += 1;
+                    }
                 }
                 // check for open/blocked lane
                 if (target_s > car_s && (target_s-car_s) < 60.0)
                 {
                     target_lane = (round(target_d) - 2.0 ) / 4.0;
                     i_tgt_lane = int(target_lane + 0.5);
-                    //cout << "Lane Blocked in Lane #:" << i_tgt_lane << endl;
-                    cost_blocked[i_tgt_lane] += 1;
+                    
+                    // Verify lane number before indexing
+                    if (i_tgt_lane >=0 && i_tgt_lane <= 2)
+                    {
+                      //cout << "Lane Blocked in Lane #:" << i_tgt_lane << endl;
+                      cost_blocked[i_tgt_lane] += 1;
+                    }
                 }
             }
                 
